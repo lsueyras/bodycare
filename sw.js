@@ -1,5 +1,5 @@
-const CACHE='bodycare-v26-3';
-const CORE=['./','./index.html','./styles.css?v=26.3-bodycare','./app.js?v=26.3-bodycare','./manifest.webmanifest','./icon.svg','./brand-logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
+const CACHE='bodycare-v26-4';
+const CORE=['./','./index.html','./styles.css?v=26.4-bodycare','./app.js?v=26.4-bodycare','./manifest.webmanifest','./icon.svg','./brand-logo.png','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 
 self.addEventListener('install',event=>{
   self.skipWaiting();
@@ -23,14 +23,16 @@ self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET')return;
 
   const url=new URL(event.request.url);
+
+  // Data/API requests must always come from the network.
+  // In particular, never put Supabase REST/Auth responses in CacheStorage.
+  if(url.origin!==self.location.origin)return;
+
   const isAppShell=
-    url.origin===self.location.origin &&
-    (
-      url.pathname.endsWith('/') ||
-      url.pathname.endsWith('/index.html') ||
-      url.pathname.endsWith('/app.js') ||
-      url.pathname.endsWith('/styles.css')
-    );
+    url.pathname.endsWith('/') ||
+    url.pathname.endsWith('/index.html') ||
+    url.pathname.endsWith('/app.js') ||
+    url.pathname.endsWith('/styles.css');
 
   if(isAppShell){
     event.respondWith(
@@ -45,18 +47,20 @@ self.addEventListener('fetch',event=>{
     return;
   }
 
+  // Only same-origin static assets are cache-first.
   event.respondWith(
     caches.match(event.request).then(cached=>{
       if(cached)return cached;
       return fetch(event.request).then(response=>{
-        const copy=response.clone();
-        caches.open(CACHE).then(cache=>cache.put(event.request,copy));
+        if(response.ok){
+          const copy=response.clone();
+          caches.open(CACHE).then(cache=>cache.put(event.request,copy));
+        }
         return response;
       });
     })
   );
 });
-
 
 self.addEventListener('push',event=>{
   let data={};

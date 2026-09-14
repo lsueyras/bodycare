@@ -759,3 +759,13 @@ https://lsueyras.github.io/pesocare/
 - Login explicitly states that Doctors and Assistants are created by Administration.
 - Admin role selector explains that the invitee does not choose the role.
 - Designed to work with `admin-console` v6 and auth role-aware trigger migration.
+
+
+## BodyCare V26.4 — Patient Data Sync Fix
+- Corrige una causa de datos aparentemente desaparecidos al reabrir la PWA.
+- El Service Worker ya no almacena respuestas de Supabase/API en CacheStorage.
+- Solo los recursos estáticos del mismo origen pueden utilizar cache del PWA.
+- `Seguimiento` resincroniza perfil y mediciones al volver a primer plano.
+- `Seguimiento` realiza actualización silenciosa cada 15 segundos sin interrumpir formularios activos.
+- Después de guardar una medición se realiza una verificación de lectura contra Supabase.
+- El cambio no modifica ni elimina registros de la base de datos.

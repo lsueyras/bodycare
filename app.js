@@ -6,7 +6,7 @@ const SUPABASE_URL='https://lqmfgxftazazqvultewm.supabase.co';
 const SUPABASE_KEY='sb_publishable_jPT0bQ9OuTC8XYqypqWY5w_GTDI7bGl';
 const APP_URL='https://lsueyras.github.io/pesocare/';
 const BRAND_LOGO_URL=APP_URL+'brand-logo.png';
-const APP_VERSION='26.3';
+const APP_VERSION='26.4';
 const VAPID_PUBLIC_KEY='BFmDmOAgsUFCZO8zPzgfCAwK8oEWdoGppWH-bojgffhCbIm4jkil637a4c7O_ObCgAATS1muWhHniGj-ZdBc31k';
 const BRAND_BUILD='BodyCare';
 const SESSION_KEY='pesocare_session_v2';
@@ -3244,6 +3244,49 @@ function bindPatientSubTabs(){
     });
   });
 }
+async function syncPatientTrackingData(renderUI=true){
+  if(!hasRole('PATIENT')||!currentUser?.id)return false;
+  try{
+    const [profileRows,recordRows]=await Promise.all([
+      dbGet(`profiles?select=*&user_id=eq.${encodeURIComponent(currentUser.id)}&limit=1`),
+      dbGet(`weight_records?select=*&user_id=eq.${encodeURIComponent(currentUser.id)}&deleted_at=is.null&order=measured_on.asc,created_at.asc`)
+    ]);
+
+    const nextProfile=profileRows?.[0]||null;
+    const nextRecords=(recordRows||[]).filter(r=>!r.deleted_at);
+    const prevSignature=records.map(r=>`${r.id}:${r.updated_at||r.created_at||''}:${r.deleted_at||''}`).join('|');
+    const nextSignature=nextRecords.map(r=>`${r.id}:${r.updated_at||r.created_at||''}:${r.deleted_at||''}`).join('|');
+    const changed=prevSignature!==nextSignature || String(profile?.updated_at||'')!==String(nextProfile?.updated_at||'');
+
+    profile=nextProfile||profile;
+    records=nextRecords;
+
+    if(renderUI&&changed&&activePortal==='PATIENT'&&activePatientTab==='TRACKING'&&!userIsTyping()){
+      dashboardView();
+    }
+    return true;
+  }catch(err){
+    console.warn('Patient tracking sync failed',err);
+    return false;
+  }
+}
+
+async function verifySavedWeightRecord(recordId){
+  if(!recordId)return;
+  try{
+    await new Promise(resolve=>setTimeout(resolve,250));
+    const rows=await dbGet(`weight_records?select=*&user_id=eq.${encodeURIComponent(currentUser.id)}&deleted_at=is.null&order=measured_on.asc,created_at.asc`);
+    const next=(rows||[]).filter(r=>!r.deleted_at);
+    if(next.some(r=>r.id===recordId)){
+      records=next;
+      return;
+    }
+    console.warn('Saved weight record was not returned by authoritative reload',recordId);
+  }catch(err){
+    console.warn('Saved weight record verification failed',err);
+  }
+}
+
 function bindLifecycleSync(){
   if(lifecycleSyncBound)return;
   lifecycleSyncBound=true;
@@ -3262,7 +3305,8 @@ function bindLifecycleSync(){
 
 async function syncVisibleContext(){
   try{
-    if(activePortal==='PATIENT'&&activePatientTab==='PLAN')await syncPatientCarePlan(true);
+    if(activePortal==='PATIENT'&&activePatientTab==='TRACKING')await syncPatientTrackingData(true);
+    else if(activePortal==='PATIENT'&&activePatientTab==='PLAN')await syncPatientCarePlan(true);
     else if(activePortal==='PATIENT'&&activePatientTab==='NUTRITION')await syncPatientNutrition(true);
     else if(activePortal==='PATIENT'&&activePatientTab==='DOCTOR')await syncPatientMedicalData();
     else if(activePortal==='PATIENT'&&activePatientTab==='PROFILE')await syncSupportTickets();
@@ -3277,7 +3321,10 @@ function startContextSync(){
   if(contextSyncTimer){clearInterval(contextSyncTimer);contextSyncTimer=null}
   bindLifecycleSync();
 
-  if(activePortal==='PATIENT'&&activePatientTab==='PLAN'){
+  if(activePortal==='PATIENT'&&activePatientTab==='TRACKING'){
+    syncPatientTrackingData(true);
+    contextSyncTimer=setInterval(()=>syncPatientTrackingData(true),15000);
+  }else if(activePortal==='PATIENT'&&activePatientTab==='PLAN'){
     syncPatientCarePlan(true);
     contextSyncTimer=setInterval(()=>syncPatientCarePlan(true),6000);
   }else if(activePortal==='PATIENT'&&activePatientTab==='NUTRITION'){
@@ -5295,7 +5342,7 @@ function bindPatientCare(){
         user_id:currentUser.id,
         subject:document.getElementById('supportSubject').value.trim(),
         description:document.getElementById('supportDescription').value.trim(),
-        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.3'}
+        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.4'}
       });
       msg.className='notice success';msg.textContent='Solicitud enviada a BodyCare Admin.';
       e.target.reset();
@@ -8065,6 +8112,7 @@ async function saveWeightRecord(e){
 
     editingWeightRecordId=null;
     dashboardView();
+    verifySavedWeightRecord(saved.id).catch(()=>{});
     syncPatientReminderPlan(false).catch(()=>{});
 
     showToast(
