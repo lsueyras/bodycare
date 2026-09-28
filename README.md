@@ -769,3 +769,21 @@ https://lsueyras.github.io/pesocare/
 - `Seguimiento` realiza actualización silenciosa cada 15 segundos sin interrumpir formularios activos.
 - Después de guardar una medición se realiza una verificación de lectura contra Supabase.
 - El cambio no modifica ni elimina registros de la base de datos.
+
+## BodyCare V26.5 - PDF Share Fix
+- Patient report no longer depends on a child popup window.
+- Report opens as an in-app preview.
+- PDF action is fixed at the bottom and respects iOS safe-area insets.
+- Printing runs from the main BodyCare PWA window.
+- Safari/iOS fallback uses document.execCommand('print') only if normal print lifecycle does not start.
+- Print CSS hides the entire application and prints only the report in A4 landscape.
+- Report preview remains responsive on mobile.
+
+
+## BodyCare V26.6 — Native PDF Export
+- El reporte del paciente ya no depende de `window.print()` ni `document.execCommand('print')`.
+- BodyCare crea un archivo PDF real en el navegador.
+- En iPhone/iPad intenta compartir el archivo con Web Share API (`navigator.share` + `File`).
+- Si el dispositivo no admite compartir archivos, aparece `Abrir PDF` como fallback explícito.
+- El PDF usa A4 horizontal y contiene resumen, métricas, gráficos y páginas de historial.
+- Sin librerías externas: el PDF se construye localmente a partir de canvases JPEG y un writer PDF mínimo.

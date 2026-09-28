@@ -3106,3 +3106,13 @@ body.bodycare-report-open{overflow:hidden}
     min-width:0!important;
   }
 }
+
+/* BodyCare V26.6 — native PDF file export */
+.patient-report-pdf-btn[hidden]{display:none!important}
+a.patient-report-pdf-btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+#patientReportExportStatus{min-height:1.35em}
+.patient-report-pdf-btn:disabled{opacity:.72;cursor:wait}
+@media(max-width:720px){
+  a.patient-report-pdf-btn{width:100%;min-height:50px}
+  .patient-report-bottom-actions{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+}

@@ -6,7 +6,7 @@ const SUPABASE_URL='https://lqmfgxftazazqvultewm.supabase.co';
 const SUPABASE_KEY='sb_publishable_jPT0bQ9OuTC8XYqypqWY5w_GTDI7bGl';
 const APP_URL='https://lsueyras.github.io/pesocare/';
 const BRAND_LOGO_URL=APP_URL+'brand-logo.png';
-const APP_VERSION='26.5';
+const APP_VERSION='26.6';
 const VAPID_PUBLIC_KEY='BFmDmOAgsUFCZO8zPzgfCAwK8oEWdoGppWH-bojgffhCbIm4jkil637a4c7O_ObCgAATS1muWhHniGj-ZdBc31k';
 const BRAND_BUILD='BodyCare';
 const SESSION_KEY='pesocare_session_v2';
@@ -4515,57 +4515,285 @@ function buildPrintableReport(sorted){
 }
 
 function closePatientReportPreview(){
+  const openPdf=document.getElementById('patientReportOpenPdf');
+  if(openPdf?.dataset?.blobUrl){try{URL.revokeObjectURL(openPdf.dataset.blobUrl)}catch{}}
   document.getElementById('patientReportPreview')?.remove();
   document.body.classList.remove('bodycare-report-open','bodycare-print-report');
 }
 
-function patientReportPrint(){
-  const root=document.getElementById('patientReportPreview');
-  if(!root)return;
 
-  document.body.classList.add('bodycare-print-report');
+function bodycarePdfTextBytes(text){
+  return new TextEncoder().encode(String(text));
+}
+function bodycarePdfConcat(parts){
+  const total=parts.reduce((n,p)=>n+p.length,0);
+  const out=new Uint8Array(total);
+  let offset=0;
+  for(const p of parts){out.set(p,offset);offset+=p.length}
+  return out;
+}
+function bodycarePdfJpegBytes(canvas,quality=.92){
+  const data=canvas.toDataURL('image/jpeg',quality);
+  const b64=data.slice(data.indexOf(',')+1);
+  const bin=atob(b64);
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  return bytes;
+}
+function bodycarePdfFromJpegPages(pages){
+  const pageW=841.89,pageH=595.28;
+  const enc=bodycarePdfTextBytes;
+  const objects=[];
+  const objectCount=2+pages.length*3;
+  const pageRefs=pages.map((_,i)=>3+i*3);
+  objects[1]=enc(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
+  objects[2]=enc(`2 0 obj\n<< /Type /Pages /Kids [${pageRefs.map(n=>`${n} 0 R`).join(' ')}] /Count ${pages.length} >>\nendobj\n`);
 
-  let beforePrintFired=false;
-  const markBeforePrint=()=>{beforePrintFired=true};
-  const cleanup=()=>{
-    document.body.classList.remove('bodycare-print-report');
-    window.removeEventListener('beforeprint',markBeforePrint);
-    window.removeEventListener('afterprint',cleanup);
-  };
-
-  window.addEventListener('beforeprint',markBeforePrint,{once:true});
-  window.addEventListener('afterprint',cleanup,{once:true});
-
-  // Safari/iOS can occasionally ignore window.print() inside an installed PWA.
-  // Schedule a legacy WebKit fallback only if the normal print lifecycle never starts.
-  const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-
-  const fallbackTimer=setTimeout(()=>{
-    if(beforePrintFired)return;
-    if(isApple&&typeof document.execCommand==='function'){
-      try{document.execCommand('print',false,null)}catch{}
-    }
-  },450);
-
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      try{
-        window.focus();
-        window.print();
-      }catch(err){
-        clearTimeout(fallbackTimer);
-        if(isApple&&typeof document.execCommand==='function'){
-          try{document.execCommand('print',false,null)}catch{}
-        }else{
-          alert('No fue posible abrir las opciones de PDF. Intenta abrir BodyCare desde Safari y vuelve a generar el reporte.');
-        }
-      }
-    });
+  pages.forEach((page,i)=>{
+    const pageObj=3+i*3,contentObj=pageObj+1,imageObj=pageObj+2;
+    const imageName=`Im${i+1}`;
+    const content=`q\n${pageW} 0 0 ${pageH} 0 0 cm\n/${imageName} Do\nQ\n`;
+    const contentBytes=enc(content);
+    objects[pageObj]=enc(`${pageObj} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /XObject << /${imageName} ${imageObj} 0 R >> >> /Contents ${contentObj} 0 R >>\nendobj\n`);
+    objects[contentObj]=bodycarePdfConcat([
+      enc(`${contentObj} 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n`),
+      contentBytes,
+      enc(`endstream\nendobj\n`)
+    ]);
+    objects[imageObj]=bodycarePdfConcat([
+      enc(`${imageObj} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${page.jpeg.length} >>\nstream\n`),
+      page.jpeg,
+      enc(`\nendstream\nendobj\n`)
+    ]);
   });
 
-  // Defensive cleanup for browsers that do not dispatch afterprint.
-  setTimeout(()=>cleanup(),20000);
+  const header=enc('%PDF-1.4\n');
+  let offset=header.length;
+  const offsets=new Array(objectCount+1).fill(0);
+  const body=[header];
+  for(let i=1;i<=objectCount;i++){
+    offsets[i]=offset;
+    body.push(objects[i]);
+    offset+=objects[i].length;
+  }
+  const xrefOffset=offset;
+  let xref=`xref\n0 ${objectCount+1}\n0000000000 65535 f \n`;
+  for(let i=1;i<=objectCount;i++)xref+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;
+  xref+=`trailer\n<< /Size ${objectCount+1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  body.push(enc(xref));
+  return new Blob(body,{type:'application/pdf'});
+}
+function bodycareCanvasRoundRect(ctx,x,y,w,h,r=16){
+  const rr=Math.max(0,Math.min(r,w/2,h/2));
+  ctx.beginPath();
+  ctx.moveTo(x+rr,y);ctx.lineTo(x+w-rr,y);ctx.quadraticCurveTo(x+w,y,x+w,y+rr);
+  ctx.lineTo(x+w,y+h-rr);ctx.quadraticCurveTo(x+w,y+h,x+w-rr,y+h);
+  ctx.lineTo(x+rr,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-rr);
+  ctx.lineTo(x,y+rr);ctx.quadraticCurveTo(x,y,x+rr,y);ctx.closePath();
+}
+function bodycareCanvasBox(ctx,x,y,w,h,fill='#ffffff',stroke='#e4e7ec',r=18){
+  bodycareCanvasRoundRect(ctx,x,y,w,h,r);
+  ctx.fillStyle=fill;ctx.fill();
+  if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke()}
+}
+function bodycareCanvasText(ctx,text,x,y,{font='28px Arial',color='#101828',align='left',baseline='alphabetic'}={}){
+  ctx.font=font;ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline=baseline;ctx.fillText(String(text??''),x,y);
+}
+function bodycareCanvasWrapText(ctx,text,x,y,maxWidth,lineHeight,maxLines=3){
+  const words=String(text??'').split(/\s+/);let line='',lines=[];
+  for(const word of words){
+    const test=line?`${line} ${word}`:word;
+    if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=word;if(lines.length>=maxLines)break}else line=test;
+  }
+  if(lines.length<maxLines&&line)lines.push(line);
+  if(lines.length===maxLines&&words.join(' ')!==lines.join(' ')){
+    let last=lines[maxLines-1];while(last.length&&ctx.measureText(last+'…').width>maxWidth)last=last.slice(0,-1);lines[maxLines-1]=last+'…';
+  }
+  lines.forEach((l,i)=>ctx.fillText(l,x,y+i*lineHeight));
+  return y+lines.length*lineHeight;
+}
+function bodycareReportNumber(n,decimals=2){
+  return Number(n).toLocaleString('es-CL',{minimumFractionDigits:decimals,maximumFractionDigits:decimals});
+}
+function bodycareReportDrawMetric(ctx,x,y,w,label,value){
+  bodycareCanvasBox(ctx,x,y,w,116,'#ffffff','#e4e7ec',16);
+  bodycareCanvasText(ctx,label,x+w/2,y+35,{font:'600 20px Arial',color:'#667085',align:'center'});
+  bodycareCanvasText(ctx,value,x+w/2,y+79,{font:'700 30px Arial',color:'#101828',align:'center'});
+}
+function bodycareReportDrawChart(ctx,points,{x,y,w,h,title,color='#175cd3',goal=null,yLabel=''}){
+  bodycareCanvasBox(ctx,x,y,w,h,'#ffffff','#e4e7ec',18);
+  bodycareCanvasText(ctx,title,x+28,y+42,{font:'700 27px Arial',color:'#101828'});
+  if(!points.length){
+    bodycareCanvasText(ctx,'Sin datos suficientes',x+w/2,y+h/2,{font:'24px Arial',color:'#667085',align:'center'});return;
+  }
+  const vals=points.map(p=>Number(p[1])).concat(goal!==null?[Number(goal)]:[]);
+  let min=Math.min(...vals),max=Math.max(...vals);
+  if(max-min<4){min-=2;max+=2}else{const pad=(max-min)*.15;min-=pad;max+=pad}
+  const xMax=Math.max(1,Number(profile?.planned_weeks||0),Math.ceil(Math.max(0,...points.map(p=>Number(p[0])||0))));
+  const L=x+82,R=x+w-28,T=y+78,B=y+h-64,iw=R-L,ih=B-T;
+  const px=week=>L+(Number(week)/xMax)*iw;
+  const py=value=>T+((max-Number(value))/(max-min))*ih;
+  ctx.lineWidth=1.5;ctx.strokeStyle='#eaecf0';ctx.fillStyle='#667085';ctx.font='18px Arial';ctx.textAlign='right';ctx.textBaseline='middle';
+  for(let i=0;i<=5;i++){
+    const yy=T+ih*i/5,v=max-(max-min)*i/5;
+    ctx.beginPath();ctx.moveTo(L,yy);ctx.lineTo(R,yy);ctx.stroke();ctx.fillText(v.toFixed(1),L-12,yy);
+  }
+  const step=xMax<=16?2:xMax<=32?4:Math.max(1,Math.ceil(xMax/8));
+  ctx.textAlign='center';ctx.textBaseline='top';
+  for(let wk=0;wk<=xMax;wk+=step){const xx=px(wk);ctx.beginPath();ctx.moveTo(xx,T);ctx.lineTo(xx,B);ctx.stroke();ctx.fillText(String(wk),xx,B+10)}
+  if(goal!==null){ctx.save();ctx.strokeStyle='#039855';ctx.lineWidth=3;ctx.setLineDash([12,10]);ctx.beginPath();ctx.moveTo(L,py(goal));ctx.lineTo(R,py(goal));ctx.stroke();ctx.restore()}
+  ctx.strokeStyle=color;ctx.lineWidth=5;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();
+  points.forEach((p,i)=>{const xx=px(p[0]),yy=py(p[1]);if(i)ctx.lineTo(xx,yy);else ctx.moveTo(xx,yy)});ctx.stroke();
+  ctx.fillStyle=color;points.forEach(p=>{ctx.beginPath();ctx.arc(px(p[0]),py(p[1]),7,0,Math.PI*2);ctx.fill()});
+  bodycareCanvasText(ctx,'Semanas de seguimiento',x+w/2,y+h-19,{font:'18px Arial',color:'#667085',align:'center'});
+  if(yLabel)bodycareCanvasText(ctx,yLabel,x+18,y+60,{font:'18px Arial',color:'#667085'});
+}
+async function bodycareReportLoadLogo(){
+  return await new Promise(resolve=>{
+    const img=new Image();let done=false;
+    const finish=value=>{if(done)return;done=true;resolve(value)};
+    img.onload=()=>finish(img);img.onerror=()=>finish(null);img.src=BRAND_LOGO_URL;
+    if(img.complete&&img.naturalWidth)finish(img);
+    setTimeout(()=>finish(null),2500);
+  });
+}
+function bodycareReportBaseCanvas(){
+  const canvas=document.createElement('canvas');canvas.width=1684;canvas.height=1190;
+  const ctx=canvas.getContext('2d',{alpha:false});ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);
+  return {canvas,ctx};
+}
+function bodycareReportDrawFooter(ctx,page,total){
+  bodycareCanvasText(ctx,'BodyCare · Salud y progreso',70,1145,{font:'18px Arial',color:'#98a2b3'});
+  bodycareCanvasText(ctx,`Página ${page} de ${total}`,1614,1145,{font:'18px Arial',color:'#98a2b3',align:'right'});
+}
+async function bodycareReportSummaryCanvas(sorted,totalPages){
+  const {canvas,ctx}=bodycareReportBaseCanvas();
+  const latest=sorted.at(-1);
+  const latestWithAbdomen=[...sorted].reverse().find(r=>r.abdominal_circumference_cm!==null&&r.abdominal_circumference_cm!==undefined);
+  const currentAbdomen=latestWithAbdomen?Number(latestWithAbdomen.abdominal_circumference_cm):null;
+  const initialAbdomen=profile.initial_abdominal_circumference_cm!==null&&profile.initial_abdominal_circumference_cm!==undefined?Number(profile.initial_abdominal_circumference_cm):null;
+  const logo=await bodycareReportLoadLogo();
+  if(logo){const ratio=logo.naturalWidth/logo.naturalHeight;const h=76,w=h*ratio;ctx.drawImage(logo,70,52,w,h)}
+  else bodycareCanvasText(ctx,'BodyCare',70,105,{font:'800 42px Arial',color:'#175cd3'});
+  bodycareCanvasText(ctx,profile.full_name,70,175,{font:'700 34px Arial',color:'#101828'});
+  bodycareCanvasText(ctx,`Inicio: ${fmt(profile.start_date)} · Seguimiento: ${profile.planned_weeks} semanas`,70,212,{font:'21px Arial',color:'#667085'});
+  const generated=new Intl.DateTimeFormat('es-CL',{timeZone:'America/Santiago',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date());
+  bodycareCanvasText(ctx,`Reporte generado: ${generated}`,1614,104,{font:'20px Arial',color:'#667085',align:'right'});
+  ctx.strokeStyle='#175cd3';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(70,242);ctx.lineTo(1614,242);ctx.stroke();
+
+  const gap=14,mw=(1544-gap*4)/5;
+  const metrics=[
+    ['Peso inicial',kg(profile.initial_weight_kg)],['Peso actual',kg(latest.weight_kg)],['Peso meta',profile.target_weight_kg?kg(profile.target_weight_kg):'—'],
+    ['Cintura inicial',cm(initialAbdomen)],['Cintura actual',cm(currentAbdomen)]
+  ];
+  metrics.forEach((m,i)=>bodycareReportDrawMetric(ctx,70+i*(mw+gap),275,mw,m[0],m[1]));
+
+  const weightPoints=getMeasurementPoints(sorted,'weight_kg',profile);
+  const abdomenPoints=getMeasurementPoints(sorted,'abdominal_circumference_cm',profile);
+  bodycareReportDrawChart(ctx,weightPoints,{x:70,y:425,w:755,h:650,title:'Evolución de peso',color:'#175cd3',goal:profile.target_weight_kg?Number(profile.target_weight_kg):null,yLabel:'Peso (kg)'});
+  bodycareReportDrawChart(ctx,abdomenPoints,{x:859,y:425,w:755,h:650,title:'Evolución de circunferencia abdominal',color:'#7f56d9',goal:null,yLabel:'Circunferencia (cm)'});
+  bodycareReportDrawFooter(ctx,1,totalPages);
+  return canvas;
+}
+function bodycareReportHistoryCanvases(sorted,totalPages){
+  const rowsPerPage=14,pages=[];
+  const chunks=[];for(let i=0;i<sorted.length;i+=rowsPerPage)chunks.push(sorted.slice(i,i+rowsPerPage));
+  chunks.forEach((chunk,pageIndex)=>{
+    const {canvas,ctx}=bodycareReportBaseCanvas();
+    bodycareCanvasText(ctx,'BodyCare',70,88,{font:'800 38px Arial',color:'#175cd3'});
+    bodycareCanvasText(ctx,'Historial de registros',70,150,{font:'700 36px Arial',color:'#101828'});
+    bodycareCanvasText(ctx,profile.full_name,70,188,{font:'22px Arial',color:'#667085'});
+    const tableX=70,tableY=245,tableW=1544,rowH=55;
+    const cols=[0,.23,.42,.66,1].map(v=>tableX+tableW*v);
+    ctx.fillStyle='#f2f4f7';ctx.fillRect(tableX,tableY,tableW,rowH);
+    const headers=['Fecha','Semana','Peso','Circunferencia abdominal'];
+    headers.forEach((h,i)=>bodycareCanvasText(ctx,h,cols[i]+18,tableY+34,{font:'700 20px Arial',color:'#344054'}));
+    chunk.forEach((r,idx)=>{
+      const yy=tableY+rowH*(idx+1);
+      if(idx%2===1){ctx.fillStyle='#f9fafb';ctx.fillRect(tableX,yy,tableW,rowH)}
+      const vals=[fmt(r.measured_on),String(weekOf(r.measured_on)),kg(r.weight_kg),cm(r.abdominal_circumference_cm)];
+      vals.forEach((v,i)=>bodycareCanvasText(ctx,v,cols[i]+18,yy+34,{font:'20px Arial',color:'#344054'}));
+      ctx.strokeStyle='#eaecf0';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(tableX,yy+rowH);ctx.lineTo(tableX+tableW,yy+rowH);ctx.stroke();
+    });
+    bodycareReportDrawFooter(ctx,pageIndex+2,totalPages);
+    pages.push(canvas);
+  });
+  return pages;
+}
+async function bodycareCreatePatientPdfBlob(sorted){
+  const historyPageCount=Math.max(1,Math.ceil(sorted.length/14));
+  const totalPages=1+historyPageCount;
+  const canvases=[await bodycareReportSummaryCanvas(sorted,totalPages),...bodycareReportHistoryCanvases(sorted,totalPages)];
+  const pages=canvases.map(canvas=>({width:canvas.width,height:canvas.height,jpeg:bodycarePdfJpegBytes(canvas,.91)}));
+  return bodycarePdfFromJpegPages(pages);
+}
+function bodycarePdfFilename(){
+  const safe=String(profile?.full_name||'Paciente').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'');
+  const date=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Santiago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  return `BodyCare_${safe||'Paciente'}_${date}.pdf`;
+}
+function bodycareShowPdfFallback(blob,filename){
+  const old=document.getElementById('patientReportOpenPdf');
+  if(old?.dataset?.blobUrl)URL.revokeObjectURL(old.dataset.blobUrl);
+  old?.remove();
+  const url=URL.createObjectURL(blob);
+  const btn=document.getElementById('patientReportPrintBtn');
+  if(btn)btn.hidden=true;
+  const link=document.createElement('a');
+  link.id='patientReportOpenPdf';link.className='primary patient-report-pdf-btn';link.href=url;link.target='_blank';link.rel='noopener';link.download=filename;link.dataset.blobUrl=url;link.textContent='Abrir PDF';
+  link.addEventListener('click',()=>setTimeout(()=>URL.revokeObjectURL(url),120000),{once:true});
+  document.querySelector('.patient-report-bottom-actions')?.appendChild(link);
+  const status=document.getElementById('patientReportExportStatus');
+  if(status)status.textContent='El archivo está listo. Toca “Abrir PDF” y luego usa Compartir en iPhone.';
+}
+async function patientReportPrint(){
+  const root=document.getElementById('patientReportPreview');
+  if(!root)return;
+  const btn=document.getElementById('patientReportPrintBtn');
+  const status=document.getElementById('patientReportExportStatus');
+  const sorted=[...records].sort((a,b)=>a.measured_on.localeCompare(b.measured_on)||String(a.created_at).localeCompare(String(b.created_at)));
+  if(!sorted.length){alert('No hay registros disponibles para generar el PDF.');return}
+
+  const originalText=btn?.textContent||'Compartir / guardar PDF';
+  if(btn){btn.disabled=true;btn.textContent='Generando PDF…'}
+  if(status)status.textContent='Creando archivo PDF…';
+
+  try{
+    const blob=await bodycareCreatePatientPdfBlob(sorted);
+    if(!blob||blob.size<1000)throw new Error('El archivo PDF generado está vacío.');
+    const filename=bodycarePdfFilename();
+    const file=new File([blob],filename,{type:'application/pdf',lastModified:Date.now()});
+
+    let canShareFiles=false;
+    try{
+      canShareFiles=typeof navigator.share==='function'&&(
+        typeof navigator.canShare!=='function'||navigator.canShare({files:[file]})
+      );
+    }catch{canShareFiles=false}
+
+    if(canShareFiles){
+      try{
+        await navigator.share({title:'Reporte BodyCare',text:`Reporte de seguimiento de ${profile.full_name}`,files:[file]});
+        if(status)status.textContent='PDF generado correctamente.';
+        showToast('PDF listo','El reporte se generó y se abrió el menú para compartir.','PUSH_TEST');
+        return;
+      }catch(err){
+        if(err?.name==='AbortError'){
+          if(status)status.textContent='Compartir cancelado. Puedes volver a intentarlo.';
+          return;
+        }
+        console.warn('Native PDF share unavailable',err);
+      }
+    }
+
+    bodycareShowPdfFallback(blob,filename);
+  }catch(err){
+    console.error('Patient PDF export failed',err);
+    if(status)status.textContent='No se pudo crear el PDF.';
+    alert('No fue posible generar el archivo PDF: '+String(err?.message||err));
+  }finally{
+    if(btn&&!btn.hidden){btn.disabled=false;btn.textContent=originalText}
+  }
 }
 
 function generateReport(){
@@ -4596,7 +4824,7 @@ function generateReport(){
     <div class="patient-report-bottom-actions">
       <div class="patient-report-action-copy">
         <strong>Compartir o guardar como PDF</strong>
-        <span>En iPhone, usa la vista previa de impresión y luego el botón Compartir.</span>
+        <span id="patientReportExportStatus">BodyCare creará un archivo PDF real y abrirá el menú Compartir.</span>
       </div>
       <button type="button" class="primary patient-report-pdf-btn" id="patientReportPrintBtn">
         Compartir / guardar PDF
@@ -5392,7 +5620,7 @@ function bindPatientCare(){
         user_id:currentUser.id,
         subject:document.getElementById('supportSubject').value.trim(),
         description:document.getElementById('supportDescription').value.trim(),
-        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.5'}
+        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.6'}
       });
       msg.className='notice success';msg.textContent='Solicitud enviada a BodyCare Admin.';
       e.target.reset();
