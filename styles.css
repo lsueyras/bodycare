@@ -2919,3 +2919,190 @@ body{background:var(--bc-bg);color:var(--bc-text)}
 .role-setup-mismatch-card .notice{display:flex;flex-direction:column;gap:4px;margin:14px 0}
 .role-setup-mismatch-card .notice strong{font-size:.78rem}
 .role-setup-mismatch-card .notice span{font-size:.68rem;line-height:1.4}
+
+
+/* BodyCare V26.5 — Reporte PDF paciente: vista previa in-app + iOS safe area */
+body.bodycare-report-open{overflow:hidden}
+
+.patient-report-preview{
+  position:fixed;
+  inset:0;
+  z-index:12000;
+  display:flex;
+  flex-direction:column;
+  background:#f3f5f8;
+  padding:
+    max(10px,env(safe-area-inset-top))
+    0
+    max(0px,env(safe-area-inset-bottom));
+}
+.patient-report-preview-topbar{
+  flex:0 0 auto;
+  min-height:62px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:8px 16px;
+  border-bottom:1px solid #e4e7ec;
+  background:rgba(255,255,255,.98);
+  box-shadow:0 2px 12px rgba(16,24,40,.06);
+}
+.patient-report-preview-topbar strong{display:block;color:#101828;font-size:.9rem}
+.patient-report-preview-topbar span{display:block;margin-top:2px;color:#667085;font-size:.67rem}
+.patient-report-close{
+  display:grid;
+  place-items:center;
+  width:42px;
+  height:42px;
+  min-height:42px;
+  padding:0;
+  border:1px solid #d0d5dd;
+  border-radius:12px;
+  background:#fff;
+  color:#344054;
+  font-size:1.55rem;
+  line-height:1;
+}
+.patient-report-preview-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  padding:16px 16px calc(118px + env(safe-area-inset-bottom));
+}
+.patient-print-report{
+  width:min(1120px,100%);
+  margin:0 auto;
+  padding:18px;
+  border:1px solid #e4e7ec;
+  border-radius:16px;
+  background:#fff;
+  color:#182230;
+  box-shadow:0 12px 36px rgba(16,24,40,.08);
+}
+.patient-print-head{
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+  align-items:flex-start;
+  border-bottom:2px solid #175cd3;
+  padding-bottom:10px;
+  margin-bottom:12px;
+}
+.patient-print-head-left{display:flex;align-items:flex-start;gap:12px}
+.patient-print-logo{width:78px;height:auto;object-fit:contain;flex:0 0 auto}
+.patient-print-brand{font-size:28px;font-weight:800;color:#175cd3}
+.patient-print-patient{margin-top:4px;font-size:18px;font-weight:700}
+.patient-print-sub{color:#667085;font-size:13px}
+.patient-print-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0}
+.patient-print-metric{border:1px solid #e4e7ec;border-radius:10px;padding:9px;text-align:center}
+.patient-print-metric span{display:block;color:#667085;font-size:11px}
+.patient-print-metric strong{display:block;font-size:16px;margin-top:2px}
+.patient-print-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.patient-print-box{border:1px solid #e4e7ec;border-radius:12px;padding:10px;break-inside:avoid}
+.patient-print-box h3{margin:0 0 5px;font-size:15px}
+.patient-print-report .chart-svg{width:100%;height:auto;display:block}
+.patient-print-report .chart-label{font-size:12px;fill:#667085}
+.patient-print-report .chart-grid{stroke:#eaecf0;stroke-width:1}
+.patient-print-report .chart-line{fill:none;stroke:#175cd3;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.patient-print-report .chart-point{fill:#175cd3;stroke:white;stroke-width:2}
+.patient-print-report .chart-goal{stroke:#039855;stroke-width:2;stroke-dasharray:7 6}
+.patient-print-report .chart-line-abdomen{fill:none;stroke:#7f56d9;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.patient-print-report .chart-point-abdomen{fill:#7f56d9;stroke:white;stroke-width:2}
+.patient-print-history{margin-top:12px}
+.patient-print-report table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+.patient-print-report th,.patient-print-report td{border-bottom:1px solid #eaecf0;padding:6px 5px;text-align:left}
+.patient-print-report th{color:#667085}
+.patient-print-footer{margin-top:10px;color:#98a2b3;font-size:10px;text-align:right}
+
+.patient-report-bottom-actions{
+  position:fixed;
+  z-index:12020;
+  left:0;
+  right:0;
+  bottom:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  min-height:88px;
+  padding:12px max(16px,env(safe-area-inset-left))
+    calc(12px + env(safe-area-inset-bottom))
+    max(16px,env(safe-area-inset-right));
+  border-top:1px solid #d0d5dd;
+  background:rgba(255,255,255,.98);
+  box-shadow:0 -8px 30px rgba(16,24,40,.12);
+  backdrop-filter:blur(14px);
+}
+.patient-report-action-copy{min-width:0;max-width:420px}
+.patient-report-action-copy strong{display:block;color:#101828;font-size:.76rem}
+.patient-report-action-copy span{display:block;margin-top:2px;color:#667085;font-size:.63rem;line-height:1.35}
+.patient-report-pdf-btn{min-width:220px;min-height:46px}
+
+@media(max-width:720px){
+  .patient-report-preview-scroll{padding:10px 10px calc(126px + env(safe-area-inset-bottom))}
+  .patient-print-report{padding:12px;border-radius:12px}
+  .patient-print-head{flex-direction:column;gap:8px}
+  .patient-print-logo{width:60px}
+  .patient-print-brand{font-size:23px}
+  .patient-print-patient{font-size:16px}
+  .patient-print-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .patient-print-grid2{grid-template-columns:1fr}
+  .patient-print-history{overflow:auto}
+  .patient-print-report table{min-width:520px}
+  .patient-report-bottom-actions{display:block}
+  .patient-report-action-copy{display:none}
+  .patient-report-pdf-btn{width:100%;min-width:0;min-height:50px}
+}
+@media(max-width:430px){
+  .patient-report-preview-topbar{padding-left:11px;padding-right:11px}
+  .patient-report-preview-scroll{padding-left:8px;padding-right:8px}
+  .patient-print-report{padding:10px}
+  .patient-print-head-left{gap:8px}
+  .patient-print-logo{width:52px}
+}
+
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body.bodycare-print-report{
+    margin:0!important;
+    padding:0!important;
+    background:#fff!important;
+    overflow:visible!important;
+  }
+  body.bodycare-print-report > *:not(#patientReportPreview){
+    display:none!important;
+  }
+  body.bodycare-print-report #patientReportPreview{
+    position:static!important;
+    display:block!important;
+    padding:0!important;
+    background:#fff!important;
+  }
+  body.bodycare-print-report .patient-report-preview-topbar,
+  body.bodycare-print-report .patient-report-bottom-actions{
+    display:none!important;
+  }
+  body.bodycare-print-report .patient-report-preview-scroll{
+    display:block!important;
+    overflow:visible!important;
+    padding:0!important;
+  }
+  body.bodycare-print-report .patient-print-report{
+    width:100%!important;
+    max-width:none!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+  }
+  body.bodycare-print-report .patient-print-box,
+  body.bodycare-print-report .patient-print-metric{
+    break-inside:avoid;
+  }
+  body.bodycare-print-report .patient-print-history table{
+    min-width:0!important;
+  }
+}

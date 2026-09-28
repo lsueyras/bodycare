@@ -6,7 +6,7 @@ const SUPABASE_URL='https://lqmfgxftazazqvultewm.supabase.co';
 const SUPABASE_KEY='sb_publishable_jPT0bQ9OuTC8XYqypqWY5w_GTDI7bGl';
 const APP_URL='https://lsueyras.github.io/pesocare/';
 const BRAND_LOGO_URL=APP_URL+'brand-logo.png';
-const APP_VERSION='26.4';
+const APP_VERSION='26.5';
 const VAPID_PUBLIC_KEY='BFmDmOAgsUFCZO8zPzgfCAwK8oEWdoGppWH-bojgffhCbIm4jkil637a4c7O_ObCgAATS1muWhHniGj-ZdBc31k';
 const BRAND_BUILD='BodyCare';
 const SESSION_KEY='pesocare_session_v2';
@@ -4430,7 +4430,7 @@ function drawCharts(sorted){
   }
 }
 
-function buildPrintableReport(sorted){
+function buildPatientReportMarkup(sorted){
   const latest=sorted.at(-1);
   const latestWithAbdomen=[...sorted].reverse().find(r=>r.abdominal_circumference_cm!==null&&r.abdominal_circumference_cm!==undefined);
   const currentAbdomen=latestWithAbdomen?Number(latestWithAbdomen.abdominal_circumference_cm):null;
@@ -4459,118 +4459,168 @@ function buildPrintableReport(sorted){
     plan:profile
   });
 
-  const generatedAt=new Date().toLocaleString('es-CL');
+  const generatedAt=new Intl.DateTimeFormat('es-CL',{
+    timeZone:'America/Santiago',
+    day:'2-digit',month:'2-digit',year:'numeric',
+    hour:'2-digit',minute:'2-digit'
+  }).format(new Date());
 
-  return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Reporte BodyCare - ${esc(profile.full_name)}</title>
-<style>
-  @page{size:A4 landscape;margin:12mm}
-  *{box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#182230;margin:0;background:#fff}
-  .report{max-width:1120px;margin:0 auto}
-  .head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:2px solid #175cd3;padding-bottom:10px;margin-bottom:12px}
-  .head-left{display:flex;align-items:flex-start;gap:12px}
-  .report-logo{width:78px;height:auto;object-fit:contain;flex:0 0 auto}
-  .brand{font-size:28px;font-weight:800;color:#175cd3}
-  .sub{color:#667085;font-size:13px}
-  .patient{margin-top:4px;font-size:18px;font-weight:700}
-  .metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0}
-  .metric{border:1px solid #e4e7ec;border-radius:10px;padding:9px;text-align:center}
-  .metric span{display:block;color:#667085;font-size:11px}
-  .metric strong{display:block;font-size:16px;margin-top:2px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .box{border:1px solid #e4e7ec;border-radius:12px;padding:10px;break-inside:avoid}
-  .box h3{margin:0 0 5px;font-size:15px}
-  .chart-svg{width:100%;height:auto;display:block}
-  .chart-label{font-size:12px;fill:#667085}
-  .chart-grid{stroke:#eaecf0;stroke-width:1}
-  .chart-line{fill:none;stroke:#175cd3;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
-  .chart-point{fill:#175cd3;stroke:white;stroke-width:2}
-  .chart-goal{stroke:#039855;stroke-width:2;stroke-dasharray:7 6}
-  .chart-line-abdomen{fill:none;stroke:#7f56d9;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
-  .chart-point-abdomen{fill:#7f56d9;stroke:white;stroke-width:2}
-  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
-  th,td{border-bottom:1px solid #eaecf0;padding:6px 5px;text-align:left}
-  th{color:#667085}
-  .footer{margin-top:10px;color:#98a2b3;font-size:10px;text-align:right}
-  .noprint{display:flex;gap:8px;margin:0 0 12px}
-  button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer}
-  .primary{background:#175cd3;color:#fff}
-  .secondary{background:#eef4ff;color:#175cd3}
-  @media print{.noprint{display:none}.report{max-width:none}}
-</style>
-</head>
-<body>
-<div class="report">
-  <div class="noprint">
-    <button class="primary" onclick="window.print()">Guardar / compartir PDF</button>
-    <button class="secondary" onclick="window.close()">Cerrar</button>
-  </div>
-
-  <div class="head">
-    <div class="head-left">
-      <img src="${BRAND_LOGO_URL}" alt="Logo BodyCare" class="report-logo" onerror="this.style.display='none'">
-      <div>
-        <div class="brand">BodyCare</div>
-        <div class="patient">${esc(profile.full_name)}</div>
-        <div class="sub">Inicio: ${fmt(profile.start_date)} · Seguimiento: ${profile.planned_weeks} semanas</div>
+  return `<article class="patient-print-report" id="patientPrintableReport" aria-label="Reporte BodyCare">
+    <div class="patient-print-head">
+      <div class="patient-print-head-left">
+        <img src="${BRAND_LOGO_URL}" alt="Logo BodyCare" class="patient-print-logo" onerror="this.style.display='none'">
+        <div>
+          <div class="patient-print-brand">BodyCare</div>
+          <div class="patient-print-patient">${esc(profile.full_name)}</div>
+          <div class="patient-print-sub">Inicio: ${fmt(profile.start_date)} · Seguimiento: ${profile.planned_weeks} semanas</div>
+        </div>
       </div>
+      <div class="patient-print-sub">Reporte generado: ${esc(generatedAt)}</div>
     </div>
-    <div class="sub">Reporte generado: ${esc(generatedAt)}</div>
-  </div>
 
-  <div class="metrics">
-    <div class="metric"><span>Peso inicial</span><strong>${kg(profile.initial_weight_kg)}</strong></div>
-    <div class="metric"><span>Peso actual</span><strong>${kg(latest.weight_kg)}</strong></div>
-    <div class="metric"><span>Peso meta</span><strong>${profile.target_weight_kg?kg(profile.target_weight_kg):'—'}</strong></div>
-    <div class="metric"><span>Cintura inicial</span><strong>${cm(initialAbdomen)}</strong></div>
-    <div class="metric"><span>Cintura actual</span><strong>${cm(currentAbdomen)}</strong></div>
-  </div>
-
-  <div class="grid2">
-    <div class="box">
-      <h3>Evolución de peso</h3>
-      ${weightSvg}
+    <div class="patient-print-metrics">
+      <div class="patient-print-metric"><span>Peso inicial</span><strong>${kg(profile.initial_weight_kg)}</strong></div>
+      <div class="patient-print-metric"><span>Peso actual</span><strong>${kg(latest.weight_kg)}</strong></div>
+      <div class="patient-print-metric"><span>Peso meta</span><strong>${profile.target_weight_kg?kg(profile.target_weight_kg):'—'}</strong></div>
+      <div class="patient-print-metric"><span>Cintura inicial</span><strong>${cm(initialAbdomen)}</strong></div>
+      <div class="patient-print-metric"><span>Cintura actual</span><strong>${cm(currentAbdomen)}</strong></div>
     </div>
-    <div class="box">
-      <h3>Evolución de circunferencia abdominal</h3>
-      ${abdomenSvg}
+
+    <div class="patient-print-grid2">
+      <section class="patient-print-box">
+        <h3>Evolución de peso</h3>
+        ${weightSvg}
+      </section>
+      <section class="patient-print-box">
+        <h3>Evolución de circunferencia abdominal</h3>
+        ${abdomenSvg}
+      </section>
     </div>
-  </div>
 
-  <div class="box" style="margin-top:12px">
-    <h3>Historial de registros</h3>
-    <table>
-      <thead>
-        <tr><th>Fecha</th><th>Semana</th><th>Peso</th><th>Circunferencia abdominal</th></tr>
-      </thead>
-      <tbody>
-        ${sorted.map(r=>`<tr><td>${fmt(r.measured_on)}</td><td>${weekOf(r.measured_on)}</td><td>${kg(r.weight_kg)}</td><td>${cm(r.abdominal_circumference_cm)}</td></tr>`).join('')}
-      </tbody>
-    </table>
-  </div>
+    <section class="patient-print-box patient-print-history">
+      <h3>Historial de registros</h3>
+      <table>
+        <thead><tr><th>Fecha</th><th>Semana</th><th>Peso</th><th>Circunferencia abdominal</th></tr></thead>
+        <tbody>${sorted.map(r=>`<tr><td>${fmt(r.measured_on)}</td><td>${weekOf(r.measured_on)}</td><td>${kg(r.weight_kg)}</td><td>${cm(r.abdominal_circumference_cm)}</td></tr>`).join('')}</tbody>
+      </table>
+    </section>
 
-  <div class="footer">BodyCare · Reporte personal de seguimiento</div>
-</div>
-</body>
-</html>`;
+    <div class="patient-print-footer">BodyCare · Reporte personal de seguimiento</div>
+  </article>`;
+}
+
+function buildPrintableReport(sorted){
+  const reportMarkup=buildPatientReportMarkup(sorted);
+  return `<!doctype html><html lang="es-CL"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Reporte BodyCare - ${esc(profile.full_name)}</title></head><body>${reportMarkup}</body></html>`;
+}
+
+function closePatientReportPreview(){
+  document.getElementById('patientReportPreview')?.remove();
+  document.body.classList.remove('bodycare-report-open','bodycare-print-report');
+}
+
+function patientReportPrint(){
+  const root=document.getElementById('patientReportPreview');
+  if(!root)return;
+
+  document.body.classList.add('bodycare-print-report');
+
+  let beforePrintFired=false;
+  const markBeforePrint=()=>{beforePrintFired=true};
+  const cleanup=()=>{
+    document.body.classList.remove('bodycare-print-report');
+    window.removeEventListener('beforeprint',markBeforePrint);
+    window.removeEventListener('afterprint',cleanup);
+  };
+
+  window.addEventListener('beforeprint',markBeforePrint,{once:true});
+  window.addEventListener('afterprint',cleanup,{once:true});
+
+  // Safari/iOS can occasionally ignore window.print() inside an installed PWA.
+  // Schedule a legacy WebKit fallback only if the normal print lifecycle never starts.
+  const isApple=/iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+
+  const fallbackTimer=setTimeout(()=>{
+    if(beforePrintFired)return;
+    if(isApple&&typeof document.execCommand==='function'){
+      try{document.execCommand('print',false,null)}catch{}
+    }
+  },450);
+
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      try{
+        window.focus();
+        window.print();
+      }catch(err){
+        clearTimeout(fallbackTimer);
+        if(isApple&&typeof document.execCommand==='function'){
+          try{document.execCommand('print',false,null)}catch{}
+        }else{
+          alert('No fue posible abrir las opciones de PDF. Intenta abrir BodyCare desde Safari y vuelve a generar el reporte.');
+        }
+      }
+    });
+  });
+
+  // Defensive cleanup for browsers that do not dispatch afterprint.
+  setTimeout(()=>cleanup(),20000);
 }
 
 function generateReport(){
   const sorted=[...records].sort((a,b)=>a.measured_on.localeCompare(b.measured_on)||String(a.created_at).localeCompare(String(b.created_at)));
-  const reportHtml=buildPrintableReport(sorted);
-  const win=window.open('','_blank');
-  if(!win){
-    alert('Safari bloqueó la apertura del reporte. Permite ventanas emergentes para este sitio e inténtalo nuevamente.');
+  if(!sorted.length){
+    alert('No hay registros disponibles para generar el reporte.');
     return;
   }
-  win.document.open();
-  win.document.write(reportHtml);
-  win.document.close();
+
+  closePatientReportPreview();
+
+  const root=document.createElement('div');
+  root.id='patientReportPreview';
+  root.className='patient-report-preview';
+  root.innerHTML=`
+    <div class="patient-report-preview-topbar">
+      <div>
+        <strong>Reporte BodyCare</strong>
+        <span>Vista previa antes de compartir</span>
+      </div>
+      <button type="button" class="patient-report-close" id="closePatientReport" aria-label="Cerrar reporte">×</button>
+    </div>
+
+    <div class="patient-report-preview-scroll">
+      ${buildPatientReportMarkup(sorted)}
+    </div>
+
+    <div class="patient-report-bottom-actions">
+      <div class="patient-report-action-copy">
+        <strong>Compartir o guardar como PDF</strong>
+        <span>En iPhone, usa la vista previa de impresión y luego el botón Compartir.</span>
+      </div>
+      <button type="button" class="primary patient-report-pdf-btn" id="patientReportPrintBtn">
+        Compartir / guardar PDF
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(root);
+  document.body.classList.add('bodycare-report-open');
+
+  document.getElementById('closePatientReport')?.addEventListener('click',closePatientReportPreview);
+  document.getElementById('patientReportPrintBtn')?.addEventListener('click',patientReportPrint);
+
+  root.addEventListener('click',e=>{
+    if(e.target===root)closePatientReportPreview();
+  });
+
+  document.addEventListener('keydown',function escClose(e){
+    if(e.key!=='Escape'||!document.getElementById('patientReportPreview'))return;
+    closePatientReportPreview();
+    document.removeEventListener('keydown',escClose);
+  });
+
+  setTimeout(()=>document.getElementById('patientReportPrintBtn')?.focus({preventScroll:true}),80);
 }
 
 
@@ -5342,7 +5392,7 @@ function bindPatientCare(){
         user_id:currentUser.id,
         subject:document.getElementById('supportSubject').value.trim(),
         description:document.getElementById('supportDescription').value.trim(),
-        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.4'}
+        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.5'}
       });
       msg.className='notice success';msg.textContent='Solicitud enviada a BodyCare Admin.';
       e.target.reset();
