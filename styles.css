@@ -3116,3 +3116,9 @@ a.patient-report-pdf-btn{display:inline-flex;align-items:center;justify-content:
   a.patient-report-pdf-btn{width:100%;min-height:50px}
   .patient-report-bottom-actions{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
 }
+
+/* BodyCare V26.7 — Password recovery hardening */
+#forgot:disabled{opacity:.62;cursor:not-allowed}
+.password-setup-card .notice.warning,.auth-card .notice.warning{
+  background:#fff8eb;border-color:#fedf89;color:#7a2e0e
+}

@@ -6,11 +6,13 @@ const SUPABASE_URL='https://lqmfgxftazazqvultewm.supabase.co';
 const SUPABASE_KEY='sb_publishable_jPT0bQ9OuTC8XYqypqWY5w_GTDI7bGl';
 const APP_URL='https://lsueyras.github.io/pesocare/';
 const BRAND_LOGO_URL=APP_URL+'brand-logo.png';
-const APP_VERSION='26.6';
+const APP_VERSION='26.7';
 const VAPID_PUBLIC_KEY='BFmDmOAgsUFCZO8zPzgfCAwK8oEWdoGppWH-bojgffhCbIm4jkil637a4c7O_ObCgAATS1muWhHniGj-ZdBc31k';
 const BRAND_BUILD='BodyCare';
 const SESSION_KEY='pesocare_session_v2';
 const PASSWORD_SETUP_KEY='bodycare_pending_password_setup';
+const RECOVERY_COOLDOWN_KEY='bodycare_recovery_cooldown_until';
+const RECOVERY_EMAIL_KEY='bodycare_recovery_email';
 const REMEMBER_KEY='pesocare_remember_me';
 const SIGNUP_COOLDOWN_KEY='pesocare_signup_cooldown_until';
 const PASSKEY_LOCAL_KEY='bodycare_passkey_enrolled_v1';
@@ -937,8 +939,39 @@ function getStoredSession(){
   }
 }
 
+function authRedirectError(){
+  const hashParams=new URLSearchParams((location.hash||'').replace(/^#/,''));
+  const queryParams=new URLSearchParams(location.search||'');
+  const code=hashParams.get('error_code')||queryParams.get('error_code')||hashParams.get('error')||queryParams.get('error');
+  const description=hashParams.get('error_description')||queryParams.get('error_description')||'';
+  if(!code&&!description)return null;
+  return {code:String(code||''),description:String(description||'')};
+}
+
+function clearAuthRedirectUrl(){
+  history.replaceState(null,'',location.pathname);
+}
+
 function captureConfirmationHash(){
-  if(!location.hash||!location.hash.includes('access_token='))return false;
+  const redirectError=authRedirectError();
+  if(redirectError){
+    clearAuthRedirectUrl();
+    localStorage.removeItem(PASSWORD_SETUP_KEY);
+    clearStoredSession();
+    session=null;
+    currentUser=null;
+
+    const raw=`${redirectError.code} ${redirectError.description}`.toLowerCase();
+    if(/expired|otp_expired|flow_state_expired/.test(raw)){
+      return {kind:'ERROR',message:'El enlace de recuperación venció. Solicita uno nuevo desde “Olvidé mi contraseña”.'};
+    }
+    if(/already|used|invalid|access_denied|flow_state_not_found/.test(raw)){
+      return {kind:'ERROR',message:'Este enlace ya fue utilizado o no es válido. Solicita uno nuevo desde “Olvidé mi contraseña”.'};
+    }
+    return {kind:'ERROR',message:'No fue posible validar el enlace de acceso. Solicita un nuevo correo de recuperación.'};
+  }
+
+  if(!location.hash||!location.hash.includes('access_token='))return null;
   const p=new URLSearchParams(location.hash.slice(1));
   const access_token=p.get('access_token');
   const refresh_token=p.get('refresh_token');
@@ -948,16 +981,14 @@ function captureConfirmationHash(){
   if(access_token){
     saveSession({access_token,refresh_token,expires_at:Date.now()+expires_in*1000},getRememberPreference());
 
-    // Supabase invite/recovery links already create an authenticated session.
-    // BodyCare keeps the session but forces password creation/reset before portal access.
     if(['invite','recovery'].includes(authType)){
       localStorage.setItem(PASSWORD_SETUP_KEY,authType);
     }
 
-    history.replaceState(null,'',location.pathname+location.search);
-    return authType||true;
+    clearAuthRedirectUrl();
+    return {kind:authType||'CONFIRMED'};
   }
-  return false;
+  return null;
 }
 
 async function refreshSession(){
@@ -2611,6 +2642,22 @@ async function showSecurityCenter(){
 }
 
 
+
+function getRecoveryCooldownSeconds(){
+  const until=Number(localStorage.getItem(RECOVERY_COOLDOWN_KEY)||0);
+  return Math.max(0,Math.ceil((until-Date.now())/1000));
+}
+function setRecoveryCooldown(seconds=60){
+  localStorage.setItem(RECOVERY_COOLDOWN_KEY,String(Date.now()+Math.max(1,Number(seconds)||60)*1000));
+}
+function updateRecoveryCooldownUI(){
+  const btn=document.getElementById('forgot');
+  if(!btn)return;
+  const left=getRecoveryCooldownSeconds();
+  btn.disabled=left>0;
+  btn.textContent=left>0?`Reenviar en ${left}s`:'Olvidé mi contraseña';
+  if(left>0)setTimeout(updateRecoveryCooldownUI,1000);
+}
 function pendingPasswordSetupType(){
   const value=localStorage.getItem(PASSWORD_SETUP_KEY);
   return ['invite','recovery'].includes(value)?value:null;
@@ -2626,7 +2673,7 @@ function passwordSetupView(type='invite'){
         <div>
           <h2 class="section-title">${isRecovery?'Crea una nueva contraseña':'Crea tu contraseña'}</h2>
           <p class="muted">${isRecovery
-            ?'Antes de volver a ingresar, define una nueva contraseña para tu cuenta.'
+            ?'Define una nueva contraseña. Cuando la guardes, volverás al inicio de sesión para ingresar con ella.'
             :'Tu invitación ya fue validada. Define tu contraseña antes de acceder por primera vez.'}</p>
         </div>
       </div>
@@ -2730,23 +2777,49 @@ async function completePasswordSetup(e,type='invite'){
       body:JSON.stringify({password})
     });
 
-    // Password exists now; only at this point may the user enter BodyCare.
     localStorage.removeItem(PASSWORD_SETUP_KEY);
-    sessionStorage.setItem(PASSKEY_UNLOCKED_KEY,'true');
 
+    if(type==='recovery'){
+      const recoveryEmail=currentUser?.email||localStorage.getItem(RECOVERY_EMAIL_KEY)||'';
+
+      // A recovery link creates a temporary authenticated session. After changing
+      // the password, close that session so the new password is explicitly tested.
+      try{
+        await fetch(`${SUPABASE_URL}/auth/v1/logout`,{
+          method:'POST',
+          headers:authHeaders(session.access_token)
+        });
+      }catch{}
+
+      clearStoredSession();
+      sessionStorage.removeItem(PASSKEY_UNLOCKED_KEY);
+      session=null;
+      currentUser=null;
+      profile=null;
+      records=[];
+      account=null;
+      roles=[];
+      localStorage.removeItem(RECOVERY_EMAIL_KEY);
+
+      loginView('Contraseña actualizada correctamente. Ingresa con tu nueva contraseña.');
+      const emailInput=document.getElementById('email');
+      if(emailInput&&recoveryEmail)emailInput.value=recoveryEmail;
+      const passwordInput=document.getElementById('password');
+      passwordInput?.focus();
+      return;
+    }
+
+    // Invitation flow: after defining the initial password, continue into BodyCare.
+    sessionStorage.setItem(PASSKEY_UNLOCKED_KEY,'true');
     await loadData();
     render();
     startRealtime();
-
     setTimeout(()=>showToast(
-      type==='recovery'?'Contraseña actualizada':'Cuenta activada',
-      type==='recovery'
-        ?'Tu nueva contraseña quedó guardada.'
-        :'Tu contraseña quedó creada. Ya puedes usar BodyCare normalmente.',
+      'Cuenta activada',
+      'Tu contraseña quedó creada. Ya puedes usar BodyCare normalmente.',
       'PUSH_TEST'
     ),250);
-
-    if(type==='invite')setTimeout(()=>maybeOfferPasskeyEnrollment(),700);
+    setTimeout(()=>maybeOfferPasskeyEnrollment(),700);
 
   }catch(err){
     if(msg){
@@ -2797,6 +2870,7 @@ function loginView(message=''){
   document.getElementById('signup').addEventListener('click',e=>auth(e,true));
   document.getElementById('forgot').addEventListener('click',forgotPassword);
   updateSignupCooldownUI();
+  updateRecoveryCooldownUI();
 }
 
 async function auth(e,signup){
@@ -2879,27 +2953,57 @@ async function auth(e,signup){
 }
 
 async function forgotPassword(){
-  const email=document.getElementById('email').value.trim();
+  const email=(document.getElementById('email')?.value||'').trim().toLowerCase();
   const msg=document.getElementById('authMsg');
+  const btn=document.getElementById('forgot');
 
   if(!email){
     msg.className='error';
-    msg.textContent='Ingresa primero tu correo.';
+    msg.textContent='Ingresa primero el correo de tu cuenta BodyCare.';
+    document.getElementById('email')?.focus();
+    return;
+  }
+
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    msg.className='error';
+    msg.textContent='Ingresa un correo válido.';
+    return;
+  }
+
+  const cooldown=getRecoveryCooldownSeconds();
+  if(cooldown>0){
+    msg.className='muted';
+    msg.textContent=`Ya se solicitó un correo. Puedes pedir otro en ${cooldown} segundos.`;
+    updateRecoveryCooldownUI();
     return;
   }
 
   try{
+    if(btn){btn.disabled=true;btn.textContent='Enviando…'}
+
     await jsonFetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${encodeURIComponent(APP_URL)}`,{
       method:'POST',
       headers:authHeaders(),
       body:JSON.stringify({email})
     });
 
+    localStorage.setItem(RECOVERY_EMAIL_KEY,email);
+    setRecoveryCooldown(60);
     msg.className='notice success';
-    msg.textContent='Te enviamos un correo para recuperar tu contraseña. Revisa también Spam.';
+    msg.textContent='Si el correo corresponde a una cuenta BodyCare, recibirás un enlace para crear una nueva contraseña. Usa siempre el correo más reciente y revisa también Spam.';
+    updateRecoveryCooldownUI();
   }catch(err){
+    const raw=String(err.message||err);
     msg.className='error';
-    msg.textContent=friendlyAuthError(String(err.message||err));
+
+    if(/rate|limit|too many|over_request_rate_limit/i.test(raw)){
+      setRecoveryCooldown(60);
+      msg.textContent='Se solicitaron varios correos en poco tiempo. Espera un minuto y vuelve a intentarlo.';
+      updateRecoveryCooldownUI();
+    }else{
+      msg.textContent=friendlyAuthError(raw);
+      if(btn){btn.disabled=false;btn.textContent='Olvidé mi contraseña'}
+    }
   }
 }
 
@@ -5620,7 +5724,7 @@ function bindPatientCare(){
         user_id:currentUser.id,
         subject:document.getElementById('supportSubject').value.trim(),
         description:document.getElementById('supportDescription').value.trim(),
-        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.6'}
+        technical_context:{user_agent:navigator.userAgent,url:location.href,app_version:'BodyCare v26.7'}
       });
       msg.className='notice success';msg.textContent='Solicitud enviada a BodyCare Admin.';
       e.target.reset();
@@ -8487,7 +8591,15 @@ remoteCareSettings={auto_control_confirmation:true,control_confirmation_hours:48
 
 async function boot(){
   try{
-    const confirmed=captureConfirmationHash();
+    const redirectResult=captureConfirmationHash();
+
+    if(redirectResult?.kind==='ERROR'){
+      loginView(redirectResult.message);
+      const notice=document.querySelector('.auth-card .notice');
+      if(notice)notice.className='notice warning';
+      return;
+    }
+
     const requiredSetup=pendingPasswordSetupType();
 
     // Invite/recovery sessions can already be authenticated by Supabase.
@@ -8504,9 +8616,8 @@ async function boot(){
 
     const localPasskey=localStorage.getItem(PASSKEY_LOCAL_KEY)==='true';
     const unlocked=sessionStorage.getItem(PASSKEY_UNLOCKED_KEY)==='true';
+    const confirmed=!!redirectResult;
 
-    // A new PWA/browser session with a locally enrolled passkey starts behind the biometric gate.
-    // Normal page refreshes within the same session remain unlocked.
     if(localPasskey&&!unlocked&&passkeyClientSupported()){
       biometricGateView(confirmed?'Correo confirmado. Ya puedes acceder con biometría.':'');
       return;
